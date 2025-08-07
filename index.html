@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lab-Link Beta: 기기 현황</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter & Noto Sans KR -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: 'Inter', 'Noto Sans KR', sans-serif; }
+        .view { display: none; }
+        .view.active { display: block; animation: viewFadeIn 0.5s ease-in-out; }
+        @keyframes viewFadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .content-section { display: none; animation: fadeIn 0.5s ease-in-out; }
+        .content-section.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .status-badge { padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+        .status-available { background-color: #dcfce7; color: #166534; }
+        .status-in-use { background-color: #fef9c3; color: #854d0e; }
+        .status-broken { background-color: #fee2e2; color: #991b1b; }
+        .status-repair { background-color: #e0e7ff; color: #3730a3; }
+        .dropdown-content { display: none; }
+        .dropdown-content.show { display: block; }
+    </style>
+</head>
+<body class="bg-slate-100">
+
+    <!-- =============================================================== -->
+    <!--                      1. 로그인 화면                     -->
+    <!-- =============================================================== -->
+    <div id="login-view" class="view active">
+        <div class="min-h-screen flex flex-col items-center justify-center p-4">
+            <div class="w-full max-w-sm">
+                <header class="text-center mb-8">
+                    <div class="flex justify-center items-center gap-3">
+                        <span class="bg-indigo-100 text-indigo-700 p-3 rounded-xl"><i class="ph-bold ph-gauge text-3xl"></i></span>
+                        <h1 class="text-4xl font-bold text-slate-900">Lab-Link Beta</h1>
+                    </div>
+                    <p class="text-slate-500 mt-4">기기 현황 시스템</p>
+                </header>
+                <form id="login-form" class="bg-white p-8 rounded-xl shadow-lg space-y-6">
+                    <div>
+                        <label for="login-name-input" class="block text-sm font-medium text-slate-700 mb-1">이름</label>
+                        <input type="text" id="login-name-input" required class="w-full px-4 py-2 border border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" placeholder="이름을 입력하세요">
+                    </div>
+                    <p id="login-error" class="text-sm text-red-600 hidden">등록되지 않은 사용자입니다.</p>
+                    <button type="submit" class="w-full bg-blue-600 text-white font-semibold py-3 px-4 rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        로그인
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- =============================================================== -->
+    <!--                      2. 앱 메인 화면 (숨김)                     -->
+    <!-- =============================================================== -->
+    <div id="app-view" class="view">
+        <div id="main-container" class="container mx-auto p-8">
+            <!-- 콘텐츠가 여기에 동적으로 채워집니다. -->
+        </div>
+    </div>
+
+    <script>
+    // --- Supabase 클라이언트 설정 ---
+    const SUPABASE_URL = 'https://kxpcqurgnqzoqwcezdhr.supabase.co'; // 여기에 Supabase URL을 붙여넣으세요.
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt4cGNxdXJnbnF6b3F3Y2V6ZGhyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ1MzY3MTMsImV4cCI6MjA3MDExMjcxM30.svxfl9YRpME0lJDmzWwbDwLkuttEnKxG8N0OyzHzr3s'; // 여기에 Supabase anon key를 붙여넣으세요.
+    
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // ==================================================================
+    // === 학생 명단을 수정하려면 이 부분을 수정하세요 ===
+    // ==================================================================
+    const allowedUsers = ["김규원", "이지윤", "박경진", "이황기", "최강"];
+    // ==================================================================
+    let currentUser = ""; // 현재 로그인한 사용자
+
+    const mainContainer = document.getElementById('main-container');
+    const views = document.querySelectorAll('.view');
+    const loginView = document.getElementById('login-view');
+    const appView = document.getElementById('app-view');
+    const loginForm = document.getElementById('login-form');
+    const loginNameInput = document.getElementById('login-name-input');
+    const loginError = document.getElementById('login-error');
+
+    function switchView(viewId) {
+        views.forEach(v => v.classList.remove('active'));
+        document.getElementById(viewId).classList.add('active');
+    }
+
+    loginForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const name = loginNameInput.value.trim();
+        if (allowedUsers.includes(name)) {
+            currentUser = name;
+            loginError.classList.add('hidden');
+            switchView('app-view');
+            renderContent('equipment-status', 'physics');
+        } else {
+            loginError.classList.remove('hidden');
+        }
+    });
+
+    async function renderContent(contentId, subId = null) {
+        let contentHTML = '';
+        
+        if (contentId.startsWith('equipment-history-')) {
+            const equipmentId = contentId.split('-')[2];
+            const lab = contentId.split('-')[3];
+            const { data: equipment, error } = await supabaseClient.from('equipment').select('*').eq('id', equipmentId).single();
+            contentHTML = await generateEquipmentHistoryHTML(equipment, lab);
+        } else if (contentId.startsWith('equipment-group-')) {
+            const groupId = contentId.split('-')[2];
+            const lab = contentId.split('-')[3];
+            const { data: group, error } = await supabaseClient.from('equipment').select('*').eq('id', groupId).single();
+            contentHTML = await generateEquipmentGroupHTML(group, lab);
+        } else if (contentId === 'equipment-status') {
+            contentHTML = await generateEquipmentStatusHTML(subId || 'physics');
+        }
+        
+        mainContainer.innerHTML = contentHTML;
+        if (contentId === 'equipment-status') addEquipmentStatusListeners(subId || 'physics');
+        if (contentId.startsWith('equipment-history-')) {
+            const lab = contentId.split('-')[3];
+            document.getElementById('back-to-equipment-list').addEventListener('click', () => renderContent('equipment-status', lab));
+        }
+        if (contentId.startsWith('equipment-group-')) {
+             const lab = contentId.split('-')[3];
+            document.getElementById('back-to-equipment-list').addEventListener('click', () => renderContent('equipment-status', lab));
+            addEquipmentGroupListeners(lab);
+        }
+    }
+
+    async function generateEquipmentStatusHTML(activeLab = 'physics') {
+        const { data: equipmentList, error } = await supabaseClient.from('equipment').select('*').eq('lab', activeLab).is('parent_id', null).order('id');
+    
+        return `
+            <div class="content-section active">
+                <header class="flex justify-between items-center mb-10">
+                    <div class="flex items-center gap-3">
+                        <span class="bg-indigo-100 text-indigo-700 p-2 rounded-lg"><i class="ph-bold ph-gauge text-2xl"></i></span>
+                        <h1 class="text-3xl font-bold text-slate-900">기기 현황</h1>
+                    </div>
+                    <div class="text-sm font-medium">사용자: <span class="font-bold text-indigo-600">${currentUser}</span></div>
+                </header>
+                <div class="border-b border-gray-200">
+                    <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                        <a href="#" class="lab-tab ${activeLab === 'physics' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm" data-lab="physics">물리실험실</a>
+                        <a href="#" class="lab-tab ${activeLab === 'chemistry' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm" data-lab="chemistry">화학실험실</a>
+                    </nav>
+                </div>
+                <div class="mt-6 bg-white rounded-lg shadow-sm border">
+                    <div class="grid grid-cols-[2fr_1fr_1fr_1fr_1.5fr] gap-4 p-4 font-semibold border-b">
+                        <div>기기명</div><div>현재 상태</div><div>위치</div><div>담당자</div><div>관리</div>
+                    </div>
+                    <div id="equipment-list-body">
+                        ${equipmentList.length > 0 ? (await Promise.all(equipmentList.map(e => generateEquipmentRowHTML(e, activeLab)))).join('') : '<p class="text-slate-500 text-center p-10">등록된 기기가 없습니다.</p>'}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    async function generateEquipmentRowHTML(equipment, lab) {
+        if (equipment.is_group) {
+            const { data: items, error, count } = await supabaseClient.from('equipment').select('*', { count: 'exact' }).eq('parent_id', equipment.id);
+            const availableCount = items.filter(item => item.status === '사용가능').length;
+            return `
+                <div class="grid grid-cols-[2fr_1fr_1fr_1fr_1.5fr] gap-4 p-4 border-b last:border-b-0 items-center">
+                    <div class="font-semibold">${equipment.name}</div>
+                    <div><span class="text-sm font-semibold text-slate-700">${availableCount} / ${items.length}대 사용 가능</span></div>
+                    <div>${equipment.location}</div>
+                    <div>${equipment.manager}</div>
+                    <div class="flex items-center gap-4">
+                        <button class="view-group-btn text-sm font-semibold text-blue-600 hover:text-blue-800" data-id="${equipment.id}" data-lab="${lab}">목록 보기</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        const statusMap = {
+            '사용가능': 'status-available',
+            '사용중': 'status-in-use',
+            '고장': 'status-broken',
+            '수리중': 'status-repair'
+        };
+        let actionButton = '';
+        if (equipment.status === '사용가능') {
+            actionButton = `<button class="use-equipment-btn text-sm font-semibold text-green-600 hover:text-green-800" data-id="${equipment.id}" data-lab="${lab}">사용</button>`;
+        } else if (equipment.status === '사용중') {
+            if (equipment.current_user_name === currentUser) {
+                actionButton = `<button class="finish-use-btn text-sm font-semibold text-red-600 hover:text-red-800" data-id="${equipment.id}" data-lab="${lab}">사용 완료</button>`;
+            } else {
+                actionButton = `<span class="text-sm text-slate-500">${equipment.current_user_name} 사용중</span>`;
+            }
+        } else {
+             actionButton = `<button class="report-btn text-sm font-semibold text-gray-500 cursor-not-allowed" disabled>상태 변경 불가</button>`;
+        }
+
+        return `
+            <div class="grid grid-cols-[2fr_1fr_1fr_1fr_1.5fr] gap-4 p-4 border-b last:border-b-0 items-center">
+                <div class="font-semibold">${equipment.name}</div>
+                <div><span class="status-badge ${statusMap[equipment.status]}">${equipment.status}</span></div>
+                <div>${equipment.location || '-'}</div>
+                <div>${equipment.manager || '-'}</div>
+                <div class="flex items-center gap-2">
+                    ${actionButton}
+                    <button class="view-history-btn text-sm text-slate-500 hover:text-slate-800 underline" data-id="${equipment.id}" data-lab="${lab}">사용 기록</button>
+                    <div class="relative dropdown">
+                        <button class="text-slate-500 hover:text-slate-800 p-1 rounded-full dropdown-toggle"><i class="ph-bold ph-gear-six text-lg"></i></button>
+                        <div class="dropdown-content absolute right-0 mt-2 w-40 bg-white rounded-md shadow-lg border z-10">
+                            ${equipment.status === '고장' || equipment.status === '수리중' ?
+                                `<a href="#" class="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 equipment-action" data-action="available" data-id="${equipment.id}" data-lab="${lab}">사용 가능으로 설정</a>` : ''
+                            }
+                            <a href="#" class="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 equipment-action" data-action="broken" data-id="${equipment.id}" data-lab="${lab}">고장 신고</a>
+                            <a href="#" class="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 equipment-action" data-action="repair" data-id="${equipment.id}" data-lab="${lab}">수리중 설정</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    function addEquipmentStatusListeners(activeLab) {
+        document.querySelectorAll('.lab-tab').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                e.preventDefault();
+                const labName = e.target.dataset.lab;
+                renderContent('equipment-status', labName);
+            });
+        });
+
+        const container = document.getElementById('equipment-list-body');
+        if (!container) return;
+    
+        container.addEventListener('click', async (e) => {
+            const dropdownToggle = e.target.closest('.dropdown-toggle');
+            const equipmentAction = e.target.closest('.equipment-action');
+            const target = e.target.closest('button');
+    
+            if (dropdownToggle) {
+                e.stopPropagation();
+                const dropdownContent = dropdownToggle.nextElementSibling;
+                document.querySelectorAll('.dropdown-content.show').forEach(d => {
+                    if (d !== dropdownContent) d.classList.remove('show');
+                });
+                dropdownContent.classList.toggle('show');
+                return;
+            }
+    
+            if (equipmentAction) {
+                e.preventDefault();
+                e.stopPropagation();
+                const equipmentId = equipmentAction.dataset.id;
+                const lab = equipmentAction.dataset.lab;
+                const action = equipmentAction.dataset.action;
+    
+                let newStatus = '';
+                if (action === 'broken') newStatus = '고장';
+                else if (action === 'repair') newStatus = '수리중';
+                else if (action === 'available') newStatus = '사용가능';
+    
+                const { error } = await supabaseClient.from('equipment').update({ status: newStatus, current_user_name: null }).eq('id', equipmentId);
+                if (action === 'broken') {
+                    await supabaseClient.from('equipment_history').insert([{ equipment_id: equipmentId, user_name: currentUser, event: '고장 신고' }]);
+                }
+    
+                renderContent('equipment-status', lab);
+                return;
+            }
+    
+            if (target) {
+                const equipmentId = target.dataset.id;
+                const lab = target.dataset.lab;
+                if (!equipmentId || !lab) return;
+    
+                if (target.matches('.view-group-btn')) {
+                    renderContent(`equipment-group-${equipmentId}-${lab}`);
+                } else if (target.matches('.use-equipment-btn')) {
+                    await supabaseClient.from('equipment').update({ status: '사용중', current_user_name: currentUser }).eq('id', equipmentId);
+                    await supabaseClient.from('equipment_history').insert([{ equipment_id: equipmentId, user_name: currentUser, start_time: new Date() }]);
+                    renderContent('equipment-status', lab);
+                } else if (target.matches('.finish-use-btn')) {
+                    await supabaseClient.from('equipment').update({ status: '사용가능', current_user_name: null }).eq('id', equipmentId);
+                    const { data: history, error } = await supabaseClient.from('equipment_history').select('id').eq('equipment_id', equipmentId).is('end_time', null).order('start_time', { ascending: false }).limit(1).single();
+                    if (history) {
+                        await supabaseClient.from('equipment_history').update({ end_time: new Date() }).eq('id', history.id);
+                    }
+                    renderContent('equipment-status', lab);
+                } else if (target.matches('.view-history-btn')) {
+                    renderContent(`equipment-history-${equipmentId}-${lab}`);
+                }
+            }
+        });
+    }
+    
+    async function generateEquipmentHistoryHTML(equipment, lab) {
+        const { data: history, error } = await supabaseClient.from('equipment_history').select('*').eq('equipment_id', equipment.id).order('created_at', { ascending: false });
+    
+        return `
+            <div class="content-section active">
+                 <header class="flex justify-between items-center mb-10">
+                    <div class="flex items-center gap-3">
+                        <button id="back-to-equipment-list" class="text-slate-500 hover:text-slate-800 p-2 rounded-full hover:bg-slate-200 transition">
+                            <i class="ph-bold ph-arrow-left text-2xl"></i>
+                        </button>
+                        <h1 class="text-3xl font-bold text-slate-900">${equipment.name} - 사용 기록</h1>
+                    </div>
+                </header>
+                <div class="bg-white rounded-lg shadow-sm border">
+                    <div class="grid grid-cols-3 gap-4 p-4 font-semibold border-b">
+                        <div>사용자</div><div>시간</div><div>내용</div>
+                    </div>
+                    <div>
+                        ${history.length > 0 ? history.map(log => {
+                            if (log.event) {
+                                return `
+                                <div class="grid grid-cols-3 gap-4 p-4 border-b last:border-b-0 items-center">
+                                    <div>${log.user_name}</div>
+                                    <div>${new Date(log.created_at).toLocaleString()}</div>
+                                    <div class="font-semibold text-red-600">${log.event}</div>
+                                </div>`;
+                            } else {
+                                return `
+                                <div class="grid grid-cols-3 gap-4 p-4 border-b last:border-b-0 items-center">
+                                    <div>${log.user_name}</div>
+                                    <div>${new Date(log.start_time).toLocaleString()}</div>
+                                    <div>${log.end_time ? new Date(log.end_time).toLocaleString() : '사용중'}</div>
+                                </div>`;
+                            }
+                        }).join('') : '<p class="text-slate-500 text-center p-10">사용 기록이 없습니다.</p>'}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    async function generateEquipmentGroupHTML(group, lab) {
+        const { data: items, error } = await supabaseClient.from('equipment').select('*').eq('parent_id', group.id).order('id');
+    
+        return `
+            <div class="content-section active">
+                <header class="flex justify-between items-center mb-10">
+                    <div class="flex items-center gap-3">
+                        <button id="back-to-equipment-list" class="text-slate-500 hover:text-slate-800 p-2 rounded-full hover:bg-slate-200 transition">
+                            <i class="ph-bold ph-arrow-left text-2xl"></i>
+                        </button>
+                        <h1 class="text-3xl font-bold text-slate-900">${group.name} 목록</h1>
+                    </div>
+                </header>
+                <div class="mt-6 bg-white rounded-lg shadow-sm border">
+                    <div class="grid grid-cols-[2fr_1fr_1fr_1fr_1.5fr] gap-4 p-4 font-semibold border-b">
+                        <div>기기명</div><div>현재 상태</div><div>위치</div><div>담당자</div><div>관리</div>
+                    </div>
+                    <div id="equipment-group-list-body">
+                       ${(await Promise.all(items.map(item => generateEquipmentRowHTML(item, lab)))).join('')}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    async function addEquipmentGroupListeners(lab) {
+         const container = document.getElementById('equipment-group-list-body');
+        if (!container) return;
+    
+        container.addEventListener('click', async (e) => {
+            const dropdownToggle = e.target.closest('.dropdown-toggle');
+            const equipmentAction = e.target.closest('.equipment-action');
+            const target = e.target.closest('button');
+    
+            if (dropdownToggle) {
+                e.stopPropagation();
+                const dropdownContent = dropdownToggle.nextElementSibling;
+                document.querySelectorAll('.dropdown-content.show').forEach(d => {
+                    if (d !== dropdownContent) d.classList.remove('show');
+                });
+                dropdownContent.classList.toggle('show');
+                return;
+            }
+    
+            if (equipmentAction) {
+                e.preventDefault();
+                e.stopPropagation();
+                const equipmentId = equipmentAction.dataset.id;
+                const action = equipmentAction.dataset.action;
+                const { data: group } = await supabaseClient.from('equipment').select('id').eq('lab', lab).eq('is_group', true).single();
+    
+                let newStatus = '';
+                if (action === 'broken') newStatus = '고장';
+                else if (action === 'repair') newStatus = '수리중';
+                else if (action === 'available') newStatus = '사용가능';
+    
+                await supabaseClient.from('equipment').update({ status: newStatus, current_user_name: null }).eq('id', equipmentId);
+                if (action === 'broken') {
+                    await supabaseClient.from('equipment_history').insert([{ equipment_id: equipmentId, user_name: currentUser, event: '고장 신고' }]);
+                }
+    
+                renderContent(`equipment-group-${group.id}-${lab}`);
+                return;
+            }
+    
+            if (target) {
+                const equipmentId = target.dataset.id;
+                if (!equipmentId) return;
+    
+                const { data: group } = await supabaseClient.from('equipment').select('id').eq('lab', lab).eq('is_group', true).single();
+    
+                if (target.matches('.use-equipment-btn')) {
+                    await supabaseClient.from('equipment').update({ status: '사용중', current_user_name: currentUser }).eq('id', equipmentId);
+                    await supabaseClient.from('equipment_history').insert([{ equipment_id: equipmentId, user_name: currentUser, start_time: new Date() }]);
+                    renderContent(`equipment-group-${group.id}-${lab}`);
+                }
+    
+                if (target.matches('.finish-use-btn')) {
+                    await supabaseClient.from('equipment').update({ status: '사용가능', current_user_name: null }).eq('id', equipmentId);
+                    const { data: history, error } = await supabaseClient.from('equipment_history').select('id').eq('equipment_id', equipmentId).is('end_time', null).order('start_time', { ascending: false }).limit(1).single();
+                    if (history) {
+                        await supabaseClient.from('equipment_history').update({ end_time: new Date() }).eq('id', history.id);
+                    }
+                    renderContent(`equipment-group-${group.id}-${lab}`);
+                }
+    
+                if (target.matches('.view-history-btn')) {
+                    renderContent(`equipment-history-${equipmentId}-${lab}`);
+                }
+            }
+        });
+    }
+    
+    // --- 전역 이벤트 리스너 ---
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.dropdown')) {
+            document.querySelectorAll('.dropdown-content.show').forEach(d => d.classList.remove('show'));
+        }
+    });
+    
+    // --- 초기화 ---
+    // renderContent('equipment-status', 'physics'); // 로그인 성공 후 호출되도록 변경
+    </script>
+</body>
+</html>
