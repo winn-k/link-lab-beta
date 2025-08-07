@@ -109,34 +109,49 @@
     });
 
     async function renderContent(contentId, subId = null) {
-        let contentHTML = '';
-        
-        if (contentId.startsWith('equipment-history-')) {
-            const equipmentId = contentId.split('-')[2];
-            const lab = contentId.split('-')[3];
-            const { data: equipment, error } = await supabaseClient.from('equipment').select('*').eq('id', equipmentId).single();
-            contentHTML = await generateEquipmentHistoryHTML(equipment, lab);
-        } else if (contentId.startsWith('equipment-group-')) {
-            const groupId = contentId.split('-')[2];
-            const lab = contentId.split('-')[3];
-            const { data: group, error } = await supabaseClient.from('equipment').select('*').eq('id', groupId).single();
-            contentHTML = await generateEquipmentGroupHTML(group, lab);
-        } else if (contentId === 'equipment-status') {
-            contentHTML = await generateEquipmentStatusHTML(subId || 'physics');
+            // [추가] 기존에 실행중인 실시간 구독이 있다면 먼저 종료합니다.
+            supabaseClient.removeAllChannels();
+
+            let contentHTML = '';
+            
+            if (contentId.startsWith('equipment-history-')) {
+                const equipmentId = contentId.split('-')[2];
+                const lab = contentId.split('-')[3];
+                const { data: equipment, error } = await supabaseClient.from('equipment').select('*').eq('id', equipmentId).single();
+                contentHTML = await generateEquipmentHistoryHTML(equipment, lab);
+            } else if (contentId.startsWith('equipment-group-')) {
+                const groupId = contentId.split('-')[2];
+                const lab = contentId.split('-')[3];
+                const { data: group, error } = await supabaseClient.from('equipment').select('*').eq('id', groupId).single();
+                contentHTML = await generateEquipmentGroupHTML(group, lab);
+            } else if (contentId === 'equipment-status') {
+                contentHTML = await generateEquipmentStatusHTML(subId || 'physics');
+            }
+            
+            mainContainer.innerHTML = contentHTML;
+            if (contentId === 'equipment-status') {
+                const activeLab = subId || 'physics';
+                addEquipmentStatusListeners(activeLab);
+
+                // [추가] 'equipment' 테이블에 변화가 생길 때마다 화면을 새로고침하는 실시간 구독을 시작합니다.
+                supabaseClient.channel('public:equipment')
+                  .on('postgres_changes', { event: '*', schema: 'public', table: 'equipment' }, payload => {
+                    console.log('Change received!', payload);
+                    renderContent('equipment-status', activeLab);
+                  })
+                  .subscribe();
+
+            }
+            if (contentId.startsWith('equipment-history-')) {
+                const lab = contentId.split('-')[3];
+                document.getElementById('back-to-equipment-list').addEventListener('click', () => renderContent('equipment-status', lab));
+            }
+            if (contentId.startsWith('equipment-group-')) {
+                 const lab = contentId.split('-')[3];
+                document.getElementById('back-to-equipment-list').addEventListener('click', () => renderContent('equipment-status', lab));
+                addEquipmentGroupListeners(lab);
+            }
         }
-        
-        mainContainer.innerHTML = contentHTML;
-        if (contentId === 'equipment-status') addEquipmentStatusListeners(subId || 'physics');
-        if (contentId.startsWith('equipment-history-')) {
-            const lab = contentId.split('-')[3];
-            document.getElementById('back-to-equipment-list').addEventListener('click', () => renderContent('equipment-status', lab));
-        }
-        if (contentId.startsWith('equipment-group-')) {
-             const lab = contentId.split('-')[3];
-            document.getElementById('back-to-equipment-list').addEventListener('click', () => renderContent('equipment-status', lab));
-            addEquipmentGroupListeners(lab);
-        }
-    }
 
     async function generateEquipmentStatusHTML(activeLab = 'physics') {
         const { data: equipmentList, error } = await supabaseClient.from('equipment').select('*').eq('lab', activeLab).is('parent_id', null).order('id');
@@ -228,78 +243,74 @@
         `;
     }
     
-    function addEquipmentStatusListeners(activeLab) {
-        document.querySelectorAll('.lab-tab').forEach(tab => {
-            tab.addEventListener('click', (e) => {
-                e.preventDefault();
-                const labName = e.target.dataset.lab;
-                renderContent('equipment-status', labName);
-            });
-        });
-
-        const container = document.getElementById('equipment-list-body');
-        if (!container) return;
-    
-        container.addEventListener('click', async (e) => {
-            const dropdownToggle = e.target.closest('.dropdown-toggle');
-            const equipmentAction = e.target.closest('.equipment-action');
-            const target = e.target.closest('button');
-    
-            if (dropdownToggle) {
-                e.stopPropagation();
-                const dropdownContent = dropdownToggle.nextElementSibling;
-                document.querySelectorAll('.dropdown-content.show').forEach(d => {
-                    if (d !== dropdownContent) d.classList.remove('show');
-                });
-                dropdownContent.classList.toggle('show');
-                return;
-            }
-    
-            if (equipmentAction) {
-                e.preventDefault();
-                e.stopPropagation();
-                const equipmentId = equipmentAction.dataset.id;
-                const lab = equipmentAction.dataset.lab;
-                const action = equipmentAction.dataset.action;
-    
-                let newStatus = '';
-                if (action === 'broken') newStatus = '고장';
-                else if (action === 'repair') newStatus = '수리중';
-                else if (action === 'available') newStatus = '사용가능';
-    
-                const { error } = await supabaseClient.from('equipment').update({ status: newStatus, current_user_name: null }).eq('id', equipmentId);
-                if (action === 'broken') {
-                    await supabaseClient.from('equipment_history').insert([{ equipment_id: equipmentId, user_name: currentUser, event: '고장 신고' }]);
+    async function addEquipmentGroupListeners(lab) {
+             const container = document.getElementById('equipment-group-list-body');
+            if (!container) return;
+        
+            container.addEventListener('click', async (e) => {
+                const dropdownToggle = e.target.closest('.dropdown-toggle');
+                const equipmentAction = e.target.closest('.equipment-action');
+                const target = e.target.closest('button');
+        
+                if (dropdownToggle) {
+                    e.stopPropagation();
+                    const dropdownContent = dropdownToggle.nextElementSibling;
+                    document.querySelectorAll('.dropdown-content.show').forEach(d => {
+                        if (d !== dropdownContent) d.classList.remove('show');
+                    });
+                    dropdownContent.classList.toggle('show');
+                    return;
                 }
-    
-                renderContent('equipment-status', lab);
-                return;
-            }
-    
-            if (target) {
-                const equipmentId = target.dataset.id;
-                const lab = target.dataset.lab;
-                if (!equipmentId || !lab) return;
-    
-                if (target.matches('.view-group-btn')) {
-                    renderContent(`equipment-group-${equipmentId}-${lab}`);
-                } else if (target.matches('.use-equipment-btn')) {
-                    await supabaseClient.from('equipment').update({ status: '사용중', current_user_name: currentUser }).eq('id', equipmentId);
-                    await supabaseClient.from('equipment_history').insert([{ equipment_id: equipmentId, user_name: currentUser, start_time: new Date() }]);
-                    renderContent('equipment-status', lab);
-                } else if (target.matches('.finish-use-btn')) {
-                    await supabaseClient.from('equipment').update({ status: '사용가능', current_user_name: null }).eq('id', equipmentId);
-                    const { data: history, error } = await supabaseClient.from('equipment_history').select('id').eq('equipment_id', equipmentId).is('end_time', null).order('start_time', { ascending: false }).limit(1).single();
-                    if (history) {
-                        await supabaseClient.from('equipment_history').update({ end_time: new Date() }).eq('id', history.id);
+        
+                if (equipmentAction) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const equipmentId = equipmentAction.dataset.id;
+                    const action = equipmentAction.dataset.action;
+                    const { data: group } = await supabaseClient.from('equipment').select('id').eq('lab', lab).eq('is_group', true).single();
+        
+                    let newStatus = '';
+                    if (action === 'broken') newStatus = '고장';
+                    else if (action === 'repair') newStatus = '수리중';
+                    else if (action === 'available') newStatus = '사용가능';
+        
+                    await supabaseClient.from('equipment').update({ status: newStatus, current_user_name: null }).eq('id', equipmentId);
+                    if (action === 'broken') {
+                        await supabaseClient.from('equipment_history').insert([{ equipment_id: equipmentId, user_name: currentUser, event: '고장 신고' }]);
                     }
-                    renderContent('equipment-status', lab);
-                } else if (target.matches('.view-history-btn')) {
-                    renderContent(`equipment-history-${equipmentId}-${lab}`);
+        
+                    // [수정] 그룹 페이지를 다시 렌더링하도록 변경
+                    renderContent(`equipment-group-${group.id}-${lab}`); 
+                    return;
                 }
-            }
-        });
-    }
+        
+                if (target) {
+                    const equipmentId = target.dataset.id;
+                    if (!equipmentId) return;
+        
+                    const { data: group } = await supabaseClient.from('equipment').select('id').eq('lab', lab).eq('is_group', true).single();
+        
+                    if (target.matches('.use-equipment-btn')) {
+                        await supabaseClient.from('equipment').update({ status: '사용중', current_user_name: currentUser }).eq('id', equipmentId);
+                        await supabaseClient.from('equipment_history').insert([{ equipment_id: equipmentId, user_name: currentUser, start_time: new Date() }]);
+                        renderContent(`equipment-group-${group.id}-${lab}`); // [수정]
+                    }
+        
+                    if (target.matches('.finish-use-btn')) {
+                        await supabaseClient.from('equipment').update({ status: '사용가능', current_user_name: null }).eq('id', equipmentId);
+                        const { data: history, error } = await supabaseClient.from('equipment_history').select('id').eq('equipment_id', equipmentId).is('end_time', null).order('start_time', { ascending: false }).limit(1).single();
+                        if (history) {
+                            await supabaseClient.from('equipment_history').update({ end_time: new Date() }).eq('id', history.id);
+                        }
+                        renderContent(`equipment-group-${group.id}-${lab}`); // [수정]
+                    }
+        
+                    if (target.matches('.view-history-btn')) {
+                        renderContent(`equipment-history-${equipmentId}-${lab}`);
+                    }
+                }
+            });
+        }
     
     async function generateEquipmentHistoryHTML(equipment, lab) {
         const { data: history, error } = await supabaseClient.from('equipment_history').select('*').eq('equipment_id', equipment.id).order('created_at', { ascending: false });
