@@ -243,8 +243,16 @@
         `;
     }
     
-    async function addEquipmentGroupListeners(lab) {
-             const container = document.getElementById('equipment-group-list-body');
+    function addEquipmentStatusListeners(activeLab) {
+            document.querySelectorAll('.lab-tab').forEach(tab => {
+                tab.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const labName = e.target.dataset.lab;
+                    renderContent('equipment-status', labName);
+                });
+            });
+
+            const container = document.getElementById('equipment-list-body');
             if (!container) return;
         
             container.addEventListener('click', async (e) => {
@@ -265,9 +273,9 @@
                 if (equipmentAction) {
                     e.preventDefault();
                     e.stopPropagation();
+                    equipmentAction.style.pointerEvents = 'none'; // 중복 클릭 방지
                     const equipmentId = equipmentAction.dataset.id;
                     const action = equipmentAction.dataset.action;
-                    const { data: group } = await supabaseClient.from('equipment').select('id').eq('lab', lab).eq('is_group', true).single();
         
                     let newStatus = '';
                     if (action === 'broken') newStatus = '고장';
@@ -278,34 +286,29 @@
                     if (action === 'broken') {
                         await supabaseClient.from('equipment_history').insert([{ equipment_id: equipmentId, user_name: currentUser, event: '고장 신고' }]);
                     }
-        
-                    // [수정] 그룹 페이지를 다시 렌더링하도록 변경
-                    renderContent(`equipment-group-${group.id}-${lab}`); 
+                    // 실시간 리스너가 화면을 업데이트하므로 직접 호출하지 않음
                     return;
                 }
         
                 if (target) {
                     const equipmentId = target.dataset.id;
-                    if (!equipmentId) return;
-        
-                    const { data: group } = await supabaseClient.from('equipment').select('id').eq('lab', lab).eq('is_group', true).single();
-        
-                    if (target.matches('.use-equipment-btn')) {
+                    const lab = target.dataset.lab;
+                    if (!equipmentId || !lab) return;
+                    
+                    target.disabled = true; // 중복 클릭 방지
+
+                    if (target.matches('.view-group-btn')) {
+                        renderContent(`equipment-group-${equipmentId}-${lab}`);
+                    } else if (target.matches('.use-equipment-btn')) {
                         await supabaseClient.from('equipment').update({ status: '사용중', current_user_name: currentUser }).eq('id', equipmentId);
                         await supabaseClient.from('equipment_history').insert([{ equipment_id: equipmentId, user_name: currentUser, start_time: new Date() }]);
-                        renderContent(`equipment-group-${group.id}-${lab}`); // [수정]
-                    }
-        
-                    if (target.matches('.finish-use-btn')) {
+                    } else if (target.matches('.finish-use-btn')) {
                         await supabaseClient.from('equipment').update({ status: '사용가능', current_user_name: null }).eq('id', equipmentId);
-                        const { data: history, error } = await supabaseClient.from('equipment_history').select('id').eq('equipment_id', equipmentId).is('end_time', null).order('start_time', { ascending: false }).limit(1).single();
+                        const { data: history } = await supabaseClient.from('equipment_history').select('id').eq('equipment_id', equipmentId).is('end_time', null).order('start_time', { ascending: false }).limit(1).single();
                         if (history) {
                             await supabaseClient.from('equipment_history').update({ end_time: new Date() }).eq('id', history.id);
                         }
-                        renderContent(`equipment-group-${group.id}-${lab}`); // [수정]
-                    }
-        
-                    if (target.matches('.view-history-btn')) {
+                    } else if (target.matches('.view-history-btn')) {
                         renderContent(`equipment-history-${equipmentId}-${lab}`);
                     }
                 }
@@ -379,72 +382,71 @@
     }
     
     async function addEquipmentGroupListeners(lab) {
-         const container = document.getElementById('equipment-group-list-body');
-        if (!container) return;
-    
-        container.addEventListener('click', async (e) => {
-            const dropdownToggle = e.target.closest('.dropdown-toggle');
-            const equipmentAction = e.target.closest('.equipment-action');
-            const target = e.target.closest('button');
-    
-            if (dropdownToggle) {
-                e.stopPropagation();
-                const dropdownContent = dropdownToggle.nextElementSibling;
-                document.querySelectorAll('.dropdown-content.show').forEach(d => {
-                    if (d !== dropdownContent) d.classList.remove('show');
-                });
-                dropdownContent.classList.toggle('show');
-                return;
-            }
-    
-            if (equipmentAction) {
-                e.preventDefault();
-                e.stopPropagation();
-                const equipmentId = equipmentAction.dataset.id;
-                const action = equipmentAction.dataset.action;
-                const { data: group } = await supabaseClient.from('equipment').select('id').eq('lab', lab).eq('is_group', true).single();
-    
-                let newStatus = '';
-                if (action === 'broken') newStatus = '고장';
-                else if (action === 'repair') newStatus = '수리중';
-                else if (action === 'available') newStatus = '사용가능';
-    
-                await supabaseClient.from('equipment').update({ status: newStatus, current_user_name: null }).eq('id', equipmentId);
-                if (action === 'broken') {
-                    await supabaseClient.from('equipment_history').insert([{ equipment_id: equipmentId, user_name: currentUser, event: '고장 신고' }]);
+             const container = document.getElementById('equipment-group-list-body');
+            if (!container) return;
+        
+            container.addEventListener('click', async (e) => {
+                const dropdownToggle = e.target.closest('.dropdown-toggle');
+                const equipmentAction = e.target.closest('.equipment-action');
+                const target = e.target.closest('button');
+        
+                if (dropdownToggle) {
+                    e.stopPropagation();
+                    const dropdownContent = dropdownToggle.nextElementSibling;
+                    document.querySelectorAll('.dropdown-content.show').forEach(d => {
+                        if (d !== dropdownContent) d.classList.remove('show');
+                    });
+                    dropdownContent.classList.toggle('show');
+                    return;
                 }
-    
-                renderContent(`equipment-group-${group.id}-${lab}`);
-                return;
-            }
-    
-            if (target) {
-                const equipmentId = target.dataset.id;
-                if (!equipmentId) return;
-    
-                const { data: group } = await supabaseClient.from('equipment').select('id').eq('lab', lab).eq('is_group', true).single();
-    
-                if (target.matches('.use-equipment-btn')) {
-                    await supabaseClient.from('equipment').update({ status: '사용중', current_user_name: currentUser }).eq('id', equipmentId);
-                    await supabaseClient.from('equipment_history').insert([{ equipment_id: equipmentId, user_name: currentUser, start_time: new Date() }]);
-                    renderContent(`equipment-group-${group.id}-${lab}`);
-                }
-    
-                if (target.matches('.finish-use-btn')) {
-                    await supabaseClient.from('equipment').update({ status: '사용가능', current_user_name: null }).eq('id', equipmentId);
-                    const { data: history, error } = await supabaseClient.from('equipment_history').select('id').eq('equipment_id', equipmentId).is('end_time', null).order('start_time', { ascending: false }).limit(1).single();
-                    if (history) {
-                        await supabaseClient.from('equipment_history').update({ end_time: new Date() }).eq('id', history.id);
+        
+                if (equipmentAction) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    equipmentAction.style.pointerEvents = 'none'; // 중복 클릭 방지
+                    const equipmentId = equipmentAction.dataset.id;
+                    const action = equipmentAction.dataset.action;
+        
+                    let newStatus = '';
+                    if (action === 'broken') newStatus = '고장';
+                    else if (action === 'repair') newStatus = '수리중';
+                    else if (action === 'available') newStatus = '사용가능';
+        
+                    await supabaseClient.from('equipment').update({ status: newStatus, current_user_name: null }).eq('id', equipmentId);
+                    if (action === 'broken') {
+                        await supabaseClient.from('equipment_history').insert([{ equipment_id: equipmentId, user_name: currentUser, event: '고장 신고' }]);
                     }
-                    renderContent(`equipment-group-${group.id}-${lab}`);
+                    // 실시간 리스너가 화면을 업데이트하므로 직접 호출하지 않음
+                    return;
                 }
-    
-                if (target.matches('.view-history-btn')) {
-                    renderContent(`equipment-history-${equipmentId}-${lab}`);
+        
+                if (target) {
+                    const equipmentId = target.dataset.id;
+                    if (!equipmentId) return;
+                    
+                    target.disabled = true; // 중복 클릭 방지
+
+                    const { data: group } = await supabaseClient.from('equipment').select('id').eq('lab', lab).eq('is_group', true).single();
+        
+                    if (target.matches('.use-equipment-btn')) {
+                        await supabaseClient.from('equipment').update({ status: '사용중', current_user_name: currentUser }).eq('id', equipmentId);
+                        await supabaseClient.from('equipment_history').insert([{ equipment_id: equipmentId, user_name: currentUser, start_time: new Date() }]);
+                    }
+        
+                    if (target.matches('.finish-use-btn')) {
+                        await supabaseClient.from('equipment').update({ status: '사용가능', current_user_name: null }).eq('id', equipmentId);
+                        const { data: history, error } = await supabaseClient.from('equipment_history').select('id').eq('equipment_id', equipmentId).is('end_time', null).order('start_time', { ascending: false }).limit(1).single();
+                        if (history) {
+                            await supabaseClient.from('equipment_history').update({ end_time: new Date() }).eq('id', history.id);
+                        }
+                    }
+        
+                    if (target.matches('.view-history-btn')) {
+                        renderContent(`equipment-history-${equipmentId}-${lab}`);
+                    }
                 }
-            }
-        });
-    }
+            });
+        }
     
     // --- 전역 이벤트 리스너 ---
     document.addEventListener('click', (e) => {
